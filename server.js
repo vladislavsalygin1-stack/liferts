@@ -81,7 +81,7 @@ function absorbShip(startX, startY, owner, crystalX, crystalY) {
 
     const [cx, cy] = q.pop();
     cells.at(cIdx)[4]--;
-    if (players.at(owner)) players.at(owner).res += 3;
+    if (players.at(owner)) players.at(owner).res += 4;
 
     for (let dx = -1; dx <= 1; dx++) {
       for (let dy = -1; dy <= 1; dy++) {
