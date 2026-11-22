@@ -1,0 +1,602 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<title>Life RTS Online</title>
+<style>
+  * { box-sizing: border-box; font-family: sans-serif; }
+  body { margin: 0; background: #0f172a; color: #f8fafc; display: flex; flex-direction: column; height: 100vh; overflow: hidden; }
+  header { background: #1e293b; padding: 8px 16px; display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #334155; }
+  .badge { background: #064e3b; color: #34d399; padding: 5px 12px; border-radius: 15px; font-weight: bold; }
+  .tabs button { background: #334155; color: #cbd5e1; border: none; padding: 6px 12px; border-radius: 6px; cursor: pointer; font-weight: bold; margin-left: 6px; }
+  .tabs button.act { background: #38bdf8; color: #0f172a; }
+  .main { display: flex; flex: 1; overflow: hidden; }
+  .side { width: 280px; background: #1e293b; padding: 10px; border-right: 1px solid #334155; display: flex; flex-direction: column; gap: 5px; overflow-y: auto; }
+  .btn { width: 100%; padding: 7px 8px; border: none; border-radius: 6px; background: #334155; color: #fff; cursor: pointer; font-weight: bold; margin-bottom: 2px; text-align: left; font-size: 13px; }
+  .btn.center { text-align: center; }
+  .btn.prim { background: #38bdf8; color: #0f172a; }
+  .btn.gold { background: #eab308; color: #0f172a; }
+  .btn.del { background: #991b1b; color: #fecaca; }
+  .btn.ok { background: #22c55e; color: #052e16; }
+  .btn.act { outline: 2px solid #facc15; }
+  .bp-row { display: flex; gap: 4px; align-items: center; }
+  .bp-del { background: #7f1d1d; color: #fff; border: none; border-radius: 6px; padding: 7px; cursor: pointer; font-weight: bold; }
+  .panel-box { background: #0f172a; padding: 8px; border-radius: 8px; border: 1px solid #334155; display: flex; flex-direction: column; gap: 5px; }
+  .row { display: flex; gap: 4px; align-items: center; }
+  .area { flex: 1; display: flex; align-items: center; justify-content: center; background: #090d16; position: relative; }
+  canvas { cursor: crosshair; }
+  #loginModal { position: fixed; inset: 0; background: rgba(0,0,0,0.85); display: flex; align-items: center; justify-content: center; z-index: 10; }
+  .box { background: #1e293b; padding: 24px; border-radius: 12px; width: 300px; border: 1px solid #38bdf8; }
+  input, select { width: 100%; padding: 6px 8px; border-radius: 6px; border: 1px solid #475569; background: #0f172a; color: #fff; font-size: 13px; }
+  input[type="color"] { padding: 1px 2px; height: 30px; width: 46px; cursor: pointer; }
+</style>
+</head>
+<body>
+<div id="loginModal">
+  <div class="box">
+    <h3 style="margin-top:0;color:#38bdf8">🧬 Вход на сервер LifeRTS</h3>
+    <input id="uLogin" placeholder="Никнейм" style="margin-bottom:8px">
+    <input id="uPass" type="password" placeholder="Пароль" style="margin-bottom:8px">
+    <button class="btn center prim" onclick="doLogin()">Войти / Регистрация</button>
+    <div id="errBox" style="color:#f87171;font-size:13px"></div>
+  </div>
+</div>
+
+<header>
+  <b>🧬 Жизнь RTS <span id="myNickTag" style="color:#38bdf8"></span></b>
+  <div class="badge">💎 Ресурсы: <span id="res">0</span></div>
+  <div id="status" style="font-size:13px;color:#facc15">Подключение...</div>
+  <div class="tabs">
+    <button id="tabBattle" class="act" onclick="setMode('battle')">⚔️ Поле боя</button>
+    <button id="tabSb" onclick="setMode('sandbox')">🛠️ Песочница (100×100)</button>
+  </div>
+</header>
+<div class="main">
+  <div id="sideBattle" class="side">
+    <button id="tBp" class="btn act" onclick="tool='bp';updBtns()">🚀 Поставить чертёж (3💎/бл)</button>
+    <button id="tWall" class="btn" onclick="tool='wall';updBtns()">🧱 Стена (2💎)</button>
+    <button id="tDel" class="btn del" onclick="tool='del';updBtns()">🧹 Демонтаж (2 сек)</button>
+    <button id="tCore" class="btn gold" onclick="tool='core';updBtns()">👑 Новое Ядро (150💎)</button>
+    <div class="row">
+      <button class="btn center" onclick="rotBp()">🔄 Поворот (R)</button>
+      <button class="btn center prim" onclick="centerBase()">🏠 База</button>
+    </div>
+
+    <div class="panel-box">
+      <div style="font-size:11px;color:#94a3b8;font-weight:bold">🛡️ КОМАНДА И ЦВЕТ:</div>
+      <div class="row">
+        <input type="color" id="myColorPicker" value="#38bdf8" onchange="changeColor(this.value)" title="Цвет команды">
+        <input id="teamTagInp" placeholder="Тег (напр. PRO)" maxlength="5">
+        <button class="btn center prim" style="width:auto;padding:7px 10px" onclick="joinTeam()">ОК</button>
+        <button id="leaveTeamBtn" class="btn center del" style="width:auto;padding:7px 8px;display:none" onclick="leaveTeam()" title="Выйти из команды">✕</button>
+      </div>
+      <div id="teamInfo" style="font-size:11px;color:#34d399">Без команды (одиночка)</div>
+      <div id="teamReqsBox" style="display:flex;flex-direction:column;gap:4px"></div>
+    </div>
+
+    <div class="panel-box">
+      <div style="font-size:11px;color:#94a3b8;font-weight:bold">💸 ПЕРЕВОД РЕСУРСОВ:</div>
+      <div class="row">
+        <select id="payTarget"></select>
+        <input id="payAmt" type="number" min="1" placeholder="💎" style="width:70px">
+        <button class="btn center ok" style="width:auto;padding:7px 10px" onclick="sendPay()">➔</button>
+      </div>
+    </div>
+
+    <div style="font-size:11px;color:#94a3b8;font-weight:bold;margin-top:2px">МОИ ЧЕРТЕЖИ:</div>
+    <div id="bpList"></div>
+    <div style="font-size:10px;color:#94a3b8;margin-top:auto">
+      ЛКМ — действие | ПКМ + тянуть — камера | Колёсико — зум | R — поворот
+    </div>
+  </div>
+  <div id="sideSb" class="side" style="display:none">
+    <div style="font-size:12px;color:#94a3b8">РЕДАКТОР СХЕМ (100×100):</div>
+    <button id="sbTestBtn" class="btn center ok" onclick="toggleSbTest()">▶️ Запустить тест</button>
+    <button class="btn center" onclick="rotSb()">🔄 Повернуть на 90° (R)</button>
+    <button class="btn center" onclick="sbCamX=50;sbCamY=50;sbZoom=8;">🎯 Центр поля</button>
+    <button class="btn center del" onclick="clearSb()">🗑 Очистить сетку</button>
+    <hr style="border-color:#334155;width:100%">
+    <input id="bpName" placeholder="Название (напр. Бомба)">
+    <button class="btn center prim" onclick="saveSb()">💾 Сохранить в чертежи</button>
+    <hr style="border-color:#334155;width:100%">
+    <div style="font-size:12px;color:#94a3b8">ФАЙЛ СХЕМЫ (.JSON):</div>
+    <button class="btn center" onclick="exportSbFile()">📥 Скачать схему (.json)</button>
+    <button class="btn center" onclick="document.getElementById('fileImp').click()">📤 Загрузить схему</button>
+    <input id="fileImp" type="file" accept=".json" style="display:none" onchange="importSbFile(this)">
+    <div style="font-size:11px;color:#94a3b8;margin-top:auto">
+      ЛКМ — рисовать | ПКМ — стереть<br>R — поворот схемы на 90°<br>СКМ или Пробел+ЛКМ — камера<br>Колёсико — зум сетки
+    </div>
+  </div>
+
+  <div class="area">
+    <canvas id="c"></canvas>
+  </div>
+</div>
+
+<script>
+const ws = new WebSocket((location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host);
+const canvas = document.getElementById('c'), ctx = canvas.getContext('2d');
+const BLOCK_COST = 3;
+
+let mode = 'battle';
+let camX = 0, camY = 0, zoom = 14, dragging = false, lastMX = 0, lastMY = 0, spaceDown = false;
+let cells = [], cores = [], me = { name: '', team: '', isLeader: false, reqs: [], color: 0x38bdf8, res: 0, hasBase: false, bx: 0, by: 0 };
+let tool = 'bp', selBp = 0, hoverX = 0, hoverY = 0;
+let buildTimers = [];
+
+window.onkeydown = e => {
+  if (document.activeElement && (document.activeElement.tagName === 'INPUT' || document.activeElement.tagName === 'SELECT')) return;
+  if (e.code === 'Space') { e.preventDefault(); spaceDown = true; }
+  if (e.code === 'KeyR') {
+    if (mode === 'battle') rotBp();
+    else if (mode === 'sandbox') rotSb();
+  }
+};
+window.onkeyup = e => { if (e.code === 'Space') { spaceDown = false; dragging = false; } };
+
+const origSend = ws.send.bind(ws);
+ws.send = data => {
+  if (typeof data === 'string' && data.startsWith('BUILD|')) {
+    const [, ticksStr, coords] = data.split('|');
+    const sec = (parseInt(ticksStr) || 1) * 0.2;
+    const firstPair = (coords || '').split(';').at(0);
+    if (firstPair && firstPair.includes(',')) {
+      const [bx, by] = firstPair.split(',').map(Number);
+      buildTimers.push({ x: bx, y: by, end: Date.now() + sec * 1000 });
+    }
+  }
+  origSend(data);
+};
+
+const defBps = [
+  { name: "Прямой корабль", cells: [{r:0,c:0},{r:0,c:3},{r:1,c:4},{r:2,c:0},{r:2,c:4},{r:3,c:1},{r:3,c:2},{r:3,c:3},{r:3,c:4}] },
+  { name: "Глайдер", cells: [{r:0,c:1},{r:1,c:2},{r:2,c:0},{r:2,c:1},{r:2,c:2}] }
+];
+let bps = defBps;
+try {
+  const s = JSON.parse(localStorage.getItem('gol_esp_bps'));
+  if (Array.isArray(s) && s.length > 0) bps = s;
+} catch(e) {}
+
+const SB_N = 100;
+let sbCamX = 50, sbCamY = 50, sbZoom = 8;
+let sbGrid = Array.from({ length: SB_N }, () => Array(SB_N).fill(0));
+let sbBackup = null, sbTesting = false;
+
+function setMode(m) {
+  mode = m;
+  document.getElementById('tabBattle').classList.toggle('act', m === 'battle');
+  document.getElementById('tabSb').classList.toggle('act', m === 'sandbox');
+  document.getElementById('sideBattle').style.display = m === 'battle' ? 'flex' : 'none';
+  document.getElementById('sideSb').style.display = m === 'sandbox' ? 'flex' : 'none';
+  if (m === 'battle' && sbTesting) toggleSbTest();
+  resize();
+}
+
+function renderBps() {
+  const d = document.getElementById('bpList'); d.innerHTML = '';
+  bps.forEach((b, i) => {
+    const row = document.createElement('div'); row.className = 'bp-row';
+    const btn = document.createElement('button');
+    btn.className = 'btn' + (i === selBp ? ' act' : '');
+    btn.innerText = b.name + ' (' + (b.cells.length * BLOCK_COST) + '💎)';
+    btn.onclick = () => { selBp = i; tool = 'bp'; updBtns(); renderBps(); };
+    row.appendChild(btn);
+
+    if (i >= 2) {
+      const del = document.createElement('button');
+      del.className = 'bp-del'; del.innerText = '✕';
+      del.onclick = () => {
+        bps.splice(i, 1); selBp = 0;
+        localStorage.setItem('gol_esp_bps', JSON.stringify(bps));
+        renderBps();
+      };
+      row.appendChild(del);
+    }
+    d.appendChild(row);
+  });
+}
+
+function updBtns() {
+  document.getElementById('tBp').classList.toggle('act', tool === 'bp');
+  document.getElementById('tWall').classList.toggle('act', tool === 'wall');
+  document.getElementById('tDel').classList.toggle('act', tool === 'del');
+  document.getElementById('tCore').classList.toggle('act', tool === 'core');
+}
+
+function rotBp() {
+  const b = bps.at(selBp); if (!b) return;
+  const m = Math.max(...b.cells.map(p => p.r));
+  b.cells = b.cells.map(p => ({ r: p.c, c: m - p.r }));
+}
+
+function centerBase() { if (me.hasBase) { camX = me.bx; camY = me.by; } }
+function doLogin() { ws.send('AUTH|' + document.getElementById('uLogin').value + '|' + document.getElementById('uPass').value); }
+function changeColor(hexStr) { ws.send('COLOR|' + hexStr.replace('#', '')); }
+function joinTeam() { ws.send('TEAM|' + document.getElementById('teamTagInp').value); }
+function leaveTeam() { ws.send('TEAM|'); }
+function accReq(name) { ws.send('TEAM_ACC|' + name); }
+function rejReq(name) { ws.send('TEAM_REJ|' + name); }
+
+function sendPay() {
+  const target = document.getElementById('payTarget').value;
+  const amt = document.getElementById('payAmt').value;
+  if (target && amt > 0) {
+    ws.send('PAY|' + target + '|' + amt);
+    document.getElementById('payAmt').value = '';
+  }
+}
+
+function toggleSbTest() {
+  const btn = document.getElementById('sbTestBtn');
+  if (!sbTesting) {
+    sbBackup = sbGrid.map(r => [...r]); sbTesting = true;
+    btn.innerText = '⏹ Стоп и вернуть'; btn.classList.replace('ok', 'del');
+  } else {
+    sbGrid = sbBackup.map(r => [...r]); sbTesting = false;
+    btn.innerText = '▶️ Запустить тест'; btn.classList.replace('del', 'ok');
+  }
+}
+
+function clearSb() {
+  if (sbTesting) toggleSbTest();
+  sbGrid = Array.from({ length: SB_N }, () => Array(SB_N).fill(0));
+}
+
+function getSbCells() {
+  const pts = [];
+  for (let r = 0; r < SB_N; r++)
+    for (let c = 0; c < SB_N; c++)
+      if (sbGrid.at(r).at(c) === 1) pts.push({ r, c });
+  return pts;
+}
+
+function rotSb() {
+  if (sbTesting) toggleSbTest();
+  const raw = getSbCells();
+  if (raw.length === 0) return;
+  const minR = Math.min(...raw.map(p => p.r)), maxR = Math.max(...raw.map(p => p.r));
+  const minC = Math.min(...raw.map(p => p.c));
+  const h = maxR - minR;
+  clearSb();
+  raw.forEach(p => {
+    const nr = minR + (p.c - minC);
+    const nc = minC + (h - (p.r - minR));
+    if (nr >= 0 && nr < SB_N && nc >= 0 && nc < SB_N) sbGrid.at(nr)[nc] = 1;
+  });
+}
+
+function exportSbFile() {
+  if (sbTesting) toggleSbTest();
+  const pts = getSbCells();
+  if (pts.length === 0) return alert('Сетка пуста, нечего сохранять!');
+  const name = document.getElementById('bpName').value.trim() || 'liferts_scheme';
+  const blob = new Blob([JSON.stringify({ name, cells: pts }, null, 2)], { type: 'application/json' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = name.replace(/[^a-zA-Zа-яА-Я0-9_-]/g, '_') + '.json';
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+}
+
+function importSbFile(inp) {
+  const file = inp.files && inp.files.item(0);
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = e => {
+    try {
+      const data = JSON.parse(e.target.result);
+      const list = Array.isArray(data) ? data : (data.cells || data.pts);
+      if (!Array.isArray(list) || list.length === 0) throw new Error('Пустой список');
+      clearSb();
+      let sumR = 0, sumC = 0, loaded = 0;
+      list.forEach(p => {
+        const r = Array.isArray(p) ? Number(p.at(0)) : Number(p.r);
+        const c = Array.isArray(p) ? Number(p.at(1)) : Number(p.c);
+        if (!isNaN(r) && !isNaN(c) && r >= 0 && r < SB_N && c >= 0 && c < SB_N) {
+          sbGrid.at(r)[c] = 1;
+          sumR += r; sumC += c; loaded++;
+        }
+      });
+      if (loaded > 0) {
+        sbCamY = Math.round(sumR / loaded);
+        sbCamX = Math.round(sumC / loaded);
+        sbZoom = 10;
+      }
+      if (data.name) document.getElementById('bpName').value = data.name;
+    } catch (err) {
+      alert('Не удалось загрузить файл: ' + err.message);
+    }
+    inp.value = '';
+  };
+  reader.readAsText(file);
+}
+
+function saveSb() {
+  if (sbTesting) toggleSbTest();
+  const raw = getSbCells();
+  if (raw.length === 0) return alert('Нарисуй хотя бы одну клетку!');
+  const minR = Math.min(...raw.map(x => x.r)), minC = Math.min(...raw.map(x => x.c));
+  const norm = raw.map(p => ({ r: p.r - minR, c: p.c - minC }));
+  const inp = document.getElementById('bpName');
+  bps.push({ name: inp.value.trim() || ('Схема #' + (bps.length + 1)), cells: norm });
+  localStorage.setItem('gol_esp_bps', JSON.stringify(bps));
+  inp.value = ''; selBp = bps.length - 1; tool = 'bp';
+  renderBps(); updBtns(); setMode('battle');
+}
+setInterval(() => {
+  if (!sbTesting || mode !== 'sandbox') return;
+  const next = Array.from({ length: SB_N }, () => Array(SB_N).fill(0));
+  for (let r = 0; r < SB_N; r++)
+    for (let c = 0; c < SB_N; c++) {
+      let n = 0;
+      for (let dr = -1; dr <= 1; dr++)
+        for (let dc = -1; dc <= 1; dc++)
+          if ((dr || dc) && r+dr>=0 && r+dr<SB_N && c+dc>=0 && c+dc<SB_N && sbGrid.at(r+dr).at(c+dc) === 1) n++;
+      next.at(r)[c] = sbGrid.at(r).at(c) ? (n === 2 || n === 3 ? 1 : 0) : (n === 3 ? 1 : 0);
+    }
+  sbGrid = next;
+}, 140);
+
+ws.onmessage = e => {
+  const d = JSON.parse(e.data);
+  if (d.t === 'err') alert(d.m);
+  if (d.t === 'ok') document.getElementById('loginModal').style.display = 'none';
+  if (d.t === 'state') {
+    cells = d.cells; cores = d.cores;
+    if (d.players) {
+      const sel = document.getElementById('payTarget');
+      const prev = sel.value;
+      const others = d.players.filter(p => p.n !== me.name);
+      if (others.length !== sel.options.length) {
+        sel.innerHTML = others.map(p => '<option value="' + p.n + '">' + (p.t ? '[' + p.t + '] ' : '') + p.n + '</option>').join('');
+        if (prev) sel.value = prev;
+      }
+    }
+  }
+  if (d.t === 'me') {
+    const first = !me.hasBase && d.hasBase;
+    me = d;
+    document.getElementById('res').innerText = me.res;
+    document.getElementById('myNickTag').innerText = (me.team ? '[' + me.team + '] ' : '') + (me.name || '');
+    document.getElementById('leaveTeamBtn').style.display = me.team ? 'block' : 'none';
+    document.getElementById('teamInfo').innerText = me.team
+      ? 'Команда: [' + me.team + '] ' + (me.isLeader ? '(Вы лидер)' : '(Участник)')
+      : 'Введите тег: создаст команду или отправит заявку';
+
+    const reqBox = document.getElementById('teamReqsBox');
+    if (Array.isArray(me.reqs) && me.reqs.length > 0) {
+      reqBox.innerHTML = me.reqs.map(nick =>
+        '<div class="row" style="background:#1e293b;padding:4px 6px;border-radius:5px;font-size:11px">' +
+        '<span style="flex:1">Заявка: <b>' + nick + '</b></span>' +
+        '<button class="btn center ok" style="width:auto;padding:3px 7px;margin:0" onclick="accReq(\'' + nick + '\')">✓</button>' +
+        '<button class="btn center del" style="width:auto;padding:3px 7px;margin:0" onclick="rejReq(\'' + nick + '\')">✕</button>' +
+        '</div>'
+      ).join('');
+    } else {
+      reqBox.innerHTML = '';
+    }
+
+    const hex = '#' + (me.color || 0x38bdf8).toString(16).padStart(6, '0');
+    if (document.activeElement !== document.getElementById('myColorPicker')) {
+      document.getElementById('myColorPicker').value = hex;
+    }
+    document.getElementById('status').innerText = me.hasBase ? 'База активна' : '⚠️ Кликни по карте, чтобы поставить Главное Ядро!';
+    if (first) centerBase();
+  }
+};
+
+function resize() {
+  canvas.width = window.innerWidth - 280;
+  canvas.height = window.innerHeight - 45;
+}
+window.onresize = resize; resize(); renderBps();
+
+canvas.oncontextmenu = e => e.preventDefault();
+canvas.onwheel = e => {
+  if (mode === 'battle') {
+    zoom = Math.max(5, Math.min(30, zoom - Math.sign(e.deltaY) * 2));
+  } else {
+    sbZoom = Math.max(4, Math.min(30, sbZoom - Math.sign(e.deltaY) * 2));
+  }
+};
+
+function handleSbMouse(e) {
+  if (sbTesting) return;
+  const cx = canvas.width / 2, cy = canvas.height / 2;
+  const c = Math.floor(sbCamX + (e.clientX - 280 - cx) / sbZoom);
+  const r = Math.floor(sbCamY + (e.clientY - 45 - cy) / sbZoom);
+  if (r >= 0 && r < SB_N && c >= 0 && c < SB_N) {
+    if (e.buttons === 1) sbGrid.at(r)[c] = 1;
+    if (e.buttons === 2) sbGrid.at(r)[c] = 0;
+  }
+}
+
+canvas.onmousedown = e => {
+  if (mode === 'sandbox') {
+    if (e.button === 1 || (e.button === 0 && spaceDown)) {
+      dragging = true; lastMX = e.clientX; lastMY = e.clientY;
+    } else {
+      handleSbMouse(e);
+    }
+    return;
+  }
+  if (e.button === 2) { dragging = true; lastMX = e.clientX; lastMY = e.clientY; return; }
+  if (!me.hasBase || tool === 'core') { ws.send('CORE|' + hoverX + '|' + hoverY); return; }
+  if (tool === 'wall') { ws.send('WALL|' + hoverX + '|' + hoverY); return; }
+  if (tool === 'del') { ws.send('DEL|' + hoverX + '|' + hoverY); return; }
+  if (tool === 'bp') {
+    const b = bps.at(selBp);
+    const pts = b.cells.map(p => (hoverX + p.c) + ',' + (hoverY + p.r)).join(';');
+    ws.send('BUILD|' + (b.cells.length * 5) + '|' + pts);
+  }
+};
+window.onmouseup = () => dragging = false;
+
+canvas.onmousemove = e => {
+  if (dragging) {
+    if (mode === 'battle') {
+      camX -= (e.clientX - lastMX) / zoom; camY -= (e.clientY - lastMY) / zoom;
+    } else {
+      sbCamX -= (e.clientX - lastMX) / sbZoom; sbCamY -= (e.clientY - lastMY) / sbZoom;
+    }
+    lastMX = e.clientX; lastMY = e.clientY;
+    return;
+  }
+  if (mode === 'sandbox') {
+    if (e.buttons === 1 || e.buttons === 2) handleSbMouse(e);
+    return;
+  }
+  hoverX = Math.floor(camX + (e.clientX - 280 - canvas.width / 2) / zoom);
+  hoverY = Math.floor(camY + (e.clientY - 45 - canvas.height / 2) / zoom);
+  if (e.buttons === 1) {
+    if (tool === 'wall') ws.send('WALL|' + hoverX + '|' + hoverY);
+    if (tool === 'del') ws.send('DEL|' + hoverX + '|' + hoverY);
+  }
+};
+
+function loop() {
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  const cx = canvas.width / 2, cy = canvas.height / 2;
+
+  if (mode === 'sandbox') {
+    const ox = cx - sbCamX * sbZoom, oy = cy - sbCamY * sbZoom;
+    ctx.fillStyle = '#0f172a';
+    ctx.fillRect(ox, oy, SB_N * sbZoom, SB_N * sbZoom);
+
+    if (sbZoom >= 6) {
+      ctx.strokeStyle = 'rgba(51, 65, 85, 0.45)';
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      for (let i = 0; i <= SB_N; i++) {
+        ctx.moveTo(ox + i * sbZoom, oy); ctx.lineTo(ox + i * sbZoom, oy + SB_N * sbZoom);
+        ctx.moveTo(ox, oy + i * sbZoom); ctx.lineTo(ox + SB_N * sbZoom, oy + i * sbZoom);
+      }
+      ctx.stroke();
+    }
+
+    ctx.strokeStyle = '#38bdf8'; ctx.lineWidth = 2;
+    ctx.strokeRect(ox, oy, SB_N * sbZoom, SB_N * sbZoom);
+
+    let activeCount = 0;
+    ctx.fillStyle = '#38bdf8';
+    for (let r = 0; r < SB_N; r++) {
+      for (let c = 0; c < SB_N; c++) {
+        if (sbGrid.at(r).at(c) === 1) {
+          activeCount++;
+          ctx.fillRect(ox + c * sbZoom + 0.5, oy + r * sbZoom + 0.5, sbZoom - 1, sbZoom - 1);
+        }
+      }
+    }
+
+    ctx.fillStyle = '#e2e8f0'; ctx.font = 'bold 12px monospace';
+    ctx.fillText('Песочница 100x100 | Клеток: ' + activeCount + ' | Цена: ' + (activeCount * BLOCK_COST) + '💎 (ЛКМ/ПКМ, R — поворот, СКМ/Пробел — камера)', 12, canvas.height - 12);
+    requestAnimationFrame(loop);
+    return;
+  }
+
+  if (zoom >= 6) {
+    ctx.strokeStyle = 'rgba(51, 65, 85, 0.35)';
+    ctx.lineWidth = 1;
+    const startX = Math.floor(camX - cx / zoom);
+    const endX = Math.ceil(camX + cx / zoom);
+    const startY = Math.floor(camY - cy / zoom);
+    const endY = Math.ceil(camY + cy / zoom);
+
+    ctx.beginPath();
+    for (let gx = startX; gx <= endX; gx++) {
+      const sx = cx + (gx - camX) * zoom;
+      ctx.moveTo(sx, 0); ctx.lineTo(sx, canvas.height);
+    }
+    for (let gy = startY; gy <= endY; gy++) {
+      const sy = cy + (gy - camY) * zoom;
+      ctx.moveTo(0, sy); ctx.lineTo(canvas.width, sy);
+    }
+    ctx.stroke();
+  }
+
+  cores.forEach(b => {
+    const sx = cx + (b.x - 12 - camX) * zoom, sy = cy + (b.y - 12 - camY) * zoom;
+    const hex = '#' + b.c.toString(16).padStart(6, '0');
+    ctx.strokeStyle = hex; ctx.lineWidth = 2;
+    ctx.strokeRect(sx, sy, 25 * zoom, 25 * zoom);
+
+    const kx = cx + (b.x - 1 - camX) * zoom, ky = cy + (b.y - 1 - camY) * zoom;
+    ctx.fillStyle = hex;
+    ctx.fillRect(kx, ky, 3 * zoom, 3 * zoom);
+    ctx.strokeStyle = '#ffffff'; ctx.strokeRect(kx, ky, 3 * zoom, 3 * zoom);
+
+    ctx.fillStyle = '#ffffff'; ctx.font = 'bold 11px sans-serif';
+    ctx.fillText(b.n + ' (' + b.hp + ' HP)', kx, ky - 5);
+  });
+
+  let hoveredEmeraldHp = null;
+
+  cells.forEach(c => {
+    const x = c.at(0), y = c.at(1), t = c.at(2), col = c.at(3), hp = c.at(4);
+    const sx = cx + (x - camX) * zoom, sy = cy + (y - camY) * zoom;
+    if (sx < -zoom || sy < -zoom || sx > canvas.width || sy > canvas.height) return;
+
+    if (t === 2) ctx.fillStyle = '#94a3b8';
+    else if (t === 3) ctx.fillStyle = '#facc15';
+    else if (t === 4) ctx.fillStyle = '#fb923c';
+    else if (t === 5) ctx.fillStyle = '#10b981';
+    else ctx.fillStyle = '#' + col.toString(16).padStart(6, '0');
+    ctx.fillRect(sx + 0.5, sy + 0.5, zoom - 1, zoom - 1);
+
+    if (t === 5) {
+      if (x === hoverX && y === hoverY) hoveredEmeraldHp = hp;
+      if (zoom >= 14) {
+        ctx.fillStyle = '#ecfdf5';
+        ctx.font = 'bold 9px sans-serif';
+        ctx.fillText(hp, sx + 2, sy + zoom - 3);
+      }
+    }
+  });
+
+  const now = Date.now();
+  buildTimers = buildTimers.filter(bt => bt.end > now);
+  buildTimers.forEach(bt => {
+    const leftSec = ((bt.end - now) / 1000).toFixed(1);
+    const sx = cx + (bt.x - camX) * zoom;
+    const sy = cy + (bt.y - camY) * zoom;
+    ctx.fillStyle = '#fef08a';
+    ctx.font = 'bold 12px sans-serif';
+    ctx.fillText('⏳ ' + leftSec + 'с', sx, sy - 6);
+  });
+
+  if (!me.hasBase || tool === 'core') {
+    ctx.strokeStyle = '#eab308';
+    ctx.strokeRect(cx + (hoverX - 12 - camX) * zoom, cy + (hoverY - 12 - camY) * zoom, 25 * zoom, 25 * zoom);
+    ctx.fillStyle = 'rgba(234, 179, 8, 0.4)';
+    ctx.fillRect(cx + (hoverX - 1 - camX) * zoom, cy + (hoverY - 1 - camY) * zoom, 3 * zoom, 3 * zoom);
+  } else if (tool === 'bp' && bps.at(selBp)) {
+    ctx.fillStyle = 'rgba(250, 204, 21, 0.45)';
+    bps.at(selBp).cells.forEach(p => {
+      ctx.fillRect(cx + (hoverX + p.c - camX) * zoom, cy + (hoverY + p.r - camY) * zoom, zoom - 1, zoom - 1);
+    });
+  } else if (tool === 'del') {
+    ctx.strokeStyle = '#ef4444';
+    ctx.strokeRect(cx + (hoverX - camX) * zoom, cy + (hoverY - camY) * zoom, zoom, zoom);
+  }
+
+   let infoText = 'Камера X:' + Math.round(camX) + ' Y:' + Math.round(camY) + ' | Курсор X:' + hoverX + ' Y:' + hoverY;
+  if (hoveredEmeraldHp !== null) {
+    infoText += ' | Изумруд: осталось ' + hoveredEmeraldHp + ' ед. (даст ' + (hoveredEmeraldHp * 2) + ')';
+  } else if (tool === 'bp' && bps.at(selBp)) {
+    const bpCells = bps.at(selBp).cells.length;
+    const buildSec = (bpCells * 5 * 0.2).toFixed(1);
+    infoText += ' | Цена: ' + (bpCells * BLOCK_COST) + ' | Сборка: ' + buildSec + ' сек';
+  }
+
+  ctx.fillStyle = '#e2e8f0';
+  ctx.font = 'bold 12px monospace';
+  ctx.fillText(infoText, 12, canvas.height - 12);
+
+  requestAnimationFrame(loop);
+}
+loop();
+</script>
+</body>
+</html>
