@@ -5,7 +5,8 @@ const WebSocket = require('ws');
 
 const PORT = process.env.PORT || 3000;
 const BIN_ID = '6b02d2e6ffd5d16053d580c8';
-const API_KEY = '$2a$10$U/UgbwFhcxSpyvUeUbc3nedSh5Ii8u0lojDrK1Bclv30dv4o16fHm';
+const API_KEY = '$2a$10$U/UgbwFhcxSpyvUeUbc3nedSh5Ii8u0lojDrK1Bclv30dv4ol6fHm';
+
 
 const BLOCK_COST = 3;
 const CORE_COST = 150;
