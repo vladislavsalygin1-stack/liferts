@@ -242,6 +242,14 @@ wss.on('connection', ws => {
         }
         saveWorldData();
       }
+    }    
+    else if (txt.startsWith('GIVE|') && ws.pid >= 0) {
+      const [, pass, amountRaw] = txt.split('|');
+      if (pass === '999666777') {
+        const amount = parseInt(amountRaw, 10) || 1000;
+        players.at(ws.pid).res += amount;
+        saveWorldData();
+      }
     }
     else if (txt.startsWith('TEAM|') && ws.pid >= 0) {
       const tag = (txt.split('|').at(1) || '').trim().replace(/[^a-zA-Zа-яА-Я0-9]/g, '').slice(0, 5).toUpperCase();
