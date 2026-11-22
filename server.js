@@ -4,7 +4,8 @@ const path = require('path');
 const WebSocket = require('ws');
 
 const PORT = process.env.PORT || 3000;
-const DATA_FILE = path.join(__dirname, 'world.json');
+const BIN_ID = '6b02d2e6ffd5d16053d580c8';
+const API_KEY = '$2a$10$U/UgbwFhcxSpyvUeUbc3nedSh5Ii8u0lojDrK1Bclv30dv4o16fHm';
 
 const BLOCK_COST = 3;
 const CORE_COST = 150;
@@ -20,32 +21,51 @@ let players = [];
 let generatedChunks = new Set();
 let teamRequests = [];
 
-function loadWorldData() {
-  if (fs.existsSync(DATA_FILE)) {
-    try {
-      const data = JSON.parse(fs.readFileSync(DATA_FILE, 'utf8'));
-      players = (data.players || []).map(p => ({ team: '', teamLeader: false, ...p }));
-      cores = data.cores || [];
-    } catch (e) { console.error('Ошибка чтения world.json:', e); }
-  }
+async function loadWorldData() {
+  try {
+    const res = await fetch(`https://jsonbin.io{BIN_ID}/latest`, {
+      headers: { 'X-Master-Key': API_KEY }
+    });
+    const json = await res.json();
+    const data = json.record || {};
+    players = (data.players || []).map(p => ({ team: '', teamLeader: false, ...p }));
+    cores = data.cores || [];
+    if (Array.isArray(data.walls)) cells.push(...data.walls);
+    console.log('Мир загружен из облака! Игроков:', players.length, 'Ядер:', cores.length);
+  } catch (e) { console.error('Ошибка чтения из облака:', e); }
 }
 
+let saveTimer = null;
 function saveWorldData() {
-  try {
-    fs.writeFileSync(DATA_FILE, JSON.stringify({ players, cores }, null, 2));
-  } catch (e) { console.error('Ошибка записи world.json:', e); }
+  clearTimeout(saveTimer);
+  saveTimer = setTimeout(async () => {
+    try {
+      await fetch(`https://jsonbin.io{BIN_ID}`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Master-Key': API_KEY
+        },
+        body: JSON.stringify({
+          players,
+          cores,
+          walls: cells.filter(c => c[2] === 2)
+        })
+      });
+    } catch (e) { console.error('Ошибка записи в облако:', e); }
+  }, 2000);
 }
 
 const isAlly = (pidA, pidB) => {
   if (pidA === pidB) return true;
-  const pA = players.at(pidA), pB = players.at(pidB);
+  const pA = players[pidA], pB = players[pidB];
   return !!(pA && pB && pA.team && pA.team === pB.team);
 };
 
 const hasAnyCore = pid => cores.some(c => c.owner === pid);
 const isInsidePlayerZone = (pid, x, y) => cores.some(c => isAlly(pid, c.owner) && Math.abs(x - c.x) <= 12 && Math.abs(y - c.y) <= 12);
 const findCoreAt = (x, y) => cores.findIndex(c => Math.abs(x - c.x) <= 1 && Math.abs(y - c.y) <= 1);
-const findCellIndex = (x, y) => cells.findIndex(c => c.at(0) === x && c.at(1) === y);
+const findCellIndex = (x, y) => cells.findIndex(c => c[0] === x && c[1] === y);
 
 function ensureChunk(x, y) {
   const cx = Math.floor(x / 16);
@@ -77,78 +97,103 @@ function absorbShip(startX, startY, owner, crystalX, crystalY) {
 
   while (q.length > 0) {
     const cIdx = findCellIndex(crystalX, crystalY);
-    if (cIdx === -1 || cells.at(cIdx).at(2) !== 5 || cells.at(cIdx).at(4) <= 0) break;
-
+    if (cIdx === -1 || cells[cIdx][2] !== 5 || cells[cIdx][4] <= 0) break;
     const [cx, cy] = q.pop();
-    cells.at(cIdx)[4]--;
-    if (players.at(owner)) players.at(owner).res += 4;
+    cells[cIdx][4]--;
+    if (players[owner]) players[owner].res += 4;
 
     for (let dx = -1; dx <= 1; dx++) {
       for (let dy = -1; dy <= 1; dy++) {
         const ni = findCellIndex(cx + dx, cy + dy);
-        if (ni >= 0 && cells.at(ni).at(2) === 1 && isAlly(cells.at(ni).at(3), owner)) {
-          q.push([cells.at(ni).at(0), cells.at(ni).at(1)]);
+        if (ni >= 0 && cells[ni][2] === 1 && isAlly(cells[ni][3], owner)) {
+          q.push([cells[ni][0], cells[ni][1]]);
           cells.splice(ni, 1);
         }
       }
     }
   }
   const finalCIdx = findCellIndex(crystalX, crystalY);
-  if (finalCIdx >= 0 && cells.at(finalCIdx).at(2) === 5 && cells.at(finalCIdx).at(4) <= 0) {
+  if (finalCIdx >= 0 && cells[finalCIdx][2] === 5 && cells[finalCIdx][4] <= 0) {
     cells.splice(finalCIdx, 1);
   }
 }
 
 function stepWorld() {
   for (let i = builds.length - 1; i >= 0; i--) {
-    if (builds.at(i).ticksLeft > 0) builds.at(i).ticksLeft--;
-    if (builds.at(i).ticksLeft === 0) {
-      for (const [bx, by] of builds.at(i).pts) {
+    if (builds[i].ticksLeft > 0) builds[i].ticksLeft--;
+    if (builds[i].ticksLeft === 0) {
+      for (const [bx, by] of builds[i].pts) {
         const ci = findCellIndex(bx, by);
-        if (ci >= 0 && cells.at(ci).at(2) === 3) cells.at(ci)[2] = builds.at(i).type || 1;
+        if (ci >= 0 && cells[ci][2] === 3) {
+          cells[ci][2] = builds[i].type || 1;
+          if (cells[ci][2] === 2) saveWorldData();
+        }
       }
       builds.splice(i, 1);
     }
   }
 
   for (let i = demos.length - 1; i >= 0; i--) {
-    if (demos.at(i).ticksLeft > 0) demos.at(i).ticksLeft--;
-    if (demos.at(i).ticksLeft === 0) {
-      const d = demos.at(i);
+    if (demos[i].ticksLeft > 0) demos[i].ticksLeft--;
+    if (demos[i].ticksLeft === 0) {
+      const d = demos[i];
       const ci = findCellIndex(d.x, d.y);
-      if (ci >= 0 && cells.at(ci).at(2) === 4) {
+      if (ci >= 0 && cells[ci][2] === 4) {
         cells.splice(ci, 1);
-        if (d.refund && players.at(d.owner)) players.at(d.owner).res += 1;
+        if (d.refund && players[d.owner]) players[d.owner].res += 1;
+        saveWorldData();
       }
       demos.splice(i, 1);
     }
   }
 
   for (let i = cells.length - 1; i >= 0; i--) {
-    const cell = cells.at(i);
-    if (!cell || cell.at(2) !== 1) continue;
+    const cell = cells[i];
+    if (!cell || cell[2] !== 1) continue;
     const [x, y, , owner] = cell;
     ensureChunk(x, y);
 
     const hitCore = findCoreAt(x, y);
-    if (hitCore >= 0 && !isAlly(cores.at(hitCore).owner, owner)) {
+    if (hitCore >= 0 && !isAlly(cores[hitCore].owner, owner)) {
       cells.splice(i, 1);
-      if (cores.at(hitCore).hp > 1) {
-        cores.at(hitCore).hp--;
+      if (cores[hitCore].hp > 1) {
+        cores[hitCore].hp--;
       } else {
-        cores.at(hitCore).owner = owner;
-        cores.at(hitCore).hp = Math.floor(CORE_MAX_HP / 2);
+        cores[hitCore].owner = owner;
+        cores[hitCore].hp = Math.floor(CORE_MAX_HP / 2);
         saveWorldData();
       }
       continue;
     }
 
+    let hitWall = false;
+    for (let dx = -1; dx <= 1 && !hitWall; dx++) {
+      for (let dy = -1; dy <= 1; dy++) {
+        const wi = findCellIndex(x + dx, y + dy);
+        if (wi >= 0 && (cells[wi][2] === 2 || cells[wi][2] === 3) && !isAlly(cells[wi][3], owner)) {
+          cells.splice(i, 1);
+          const wallIdx = findCellIndex(x + dx, y + dy);
+          if (wallIdx >= 0) {
+            cells[wallIdx][4]--;
+            if (cells[wallIdx][4] <= 0) {
+              cells.splice(wallIdx, 1);
+              saveWorldData();
+            }
+          }
+          i = cells.length;
+          hitWall = true;
+          break;
+        }
+      }
+    }
+    if (hitWall) continue;
+
     let absorbed = false;
     for (let dx = -1; dx <= 1 && !absorbed; dx++) {
       for (let dy = -1; dy <= 1; dy++) {
         const ci = findCellIndex(x + dx, y + dy);
-        if (ci >= 0 && cells.at(ci).at(2) === 5) {
-          absorbShip(x, y, owner, cells.at(ci).at(0), cells.at(ci).at(1));
+        if (ci >= 0 && cells[ci][2] === 5) {
+          absorbShip(x, y, owner, cells[ci][0], cells[ci][1]);
           i = cells.length;
           absorbed = true;
           break;
@@ -157,12 +202,12 @@ function stepWorld() {
     }
   }
 
-  const nextCells = cells.filter(c => c.at(2) >= 2);
+  const nextCells = cells.filter(c => c[2] >= 2);
   const liveMap = new Map();
   const candidates = new Set();
 
   for (const c of cells) {
-    if (c.at(2) !== 1) continue;
+    if (c[2] !== 1) continue;
     const [x, y, , owner] = c;
     liveMap.set(x + ',' + y, owner);
     for (let dx = -1; dx <= 1; dx++) {
@@ -173,7 +218,7 @@ function stepWorld() {
     }
   }
 
-  const staticSet = new Set(nextCells.map(c => c.at(0) + ',' + c.at(1)));
+  const staticSet = new Set(nextCells.map(c => c[0] + ',' + c[1]));
 
   for (const key of candidates) {
     if (staticSet.has(key)) continue;
@@ -202,6 +247,7 @@ function stepWorld() {
   }
   cells = nextCells;
 }
+
 const server = http.createServer((req, res) => {
   res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
   fs.createReadStream(path.join(__dirname, 'index.html')).pipe(res);
@@ -222,38 +268,47 @@ wss.on('connection', ws => {
 
       let found = players.findIndex(p => p.name === login);
       if (found === -1) {
-        players.push({ name: login, pass, color: PALETTE.at(players.length % 8), res: 60, team: '', teamLeader: false });
+        players.push({ name: login, pass, color: PALETTE[players.length % 8], res: 60, team: '', teamLeader: false });
         found = players.length - 1;
         saveWorldData();
-      } else if (players.at(found).pass !== pass) {
+      } else if (players[found].pass !== pass) {
         ws.send(JSON.stringify({ t: 'err', m: 'Неверный пароль!' }));
         return;
       }
       ws.pid = found;
+      console.log(`[ВХОД] ${login} (Всего игроков: ${players.length})`);
       ws.send(JSON.stringify({ t: 'ok' }));
     }
     else if (txt.startsWith('COLOR|') && ws.pid >= 0) {
-      const hex = parseInt(txt.split('|').at(1), 16);
+      const hex = parseInt(txt.split('|')[1], 16);
       if (!isNaN(hex)) {
-        const meObj = players.at(ws.pid);
+        const meObj = players[ws.pid];
         meObj.color = hex;
         if (meObj.team) {
           players.forEach(p => { if (p.team === meObj.team) p.color = hex; });
         }
         saveWorldData();
       }
-    }    
+    }
     else if (txt.startsWith('GIVE|') && ws.pid >= 0) {
       const [, pass, amountRaw] = txt.split('|');
       if (pass === '999666777') {
         const amount = parseInt(amountRaw, 10) || 1000;
-        players.at(ws.pid).res += amount;
+        players[ws.pid].res += amount;
         saveWorldData();
       }
     }
+    else if (txt.startsWith('STATS|') && ws.pid >= 0) {
+      const [, pass] = txt.split('|');
+      if (pass === '999666777') {
+        const online = [...wss.clients].filter(c => c.pid >= 0).map(c => players[c.pid]?.name);
+        const all = players.map(p => `${p.name} (ресов: ${p.res})`);
+        ws.send(JSON.stringify({ t: 'stats', online, all }));
+      }
+    }
     else if (txt.startsWith('TEAM|') && ws.pid >= 0) {
-      const tag = (txt.split('|').at(1) || '').trim().replace(/[^a-zA-Zа-яА-Я0-9]/g, '').slice(0, 5).toUpperCase();
-      const meObj = players.at(ws.pid);
+      const tag = (txt.split('|')[1] || '').trim().replace(/[^a-zA-Zа-яА-Я0-9]/g, '').slice(0, 5).toUpperCase();
+      const meObj = players[ws.pid];
 
       if (!tag) {
         const oldTeam = meObj.team;
@@ -283,8 +338,8 @@ wss.on('connection', ws => {
       }
     }
     else if (txt.startsWith('TEAM_ACC|') && ws.pid >= 0) {
-      const targetName = (txt.split('|').at(1) || '').trim();
-      const meObj = players.at(ws.pid);
+      const targetName = (txt.split('|')[1] || '').trim();
+      const meObj = players[ws.pid];
       if (!meObj.team || !meObj.teamLeader) return;
       const reqIdx = teamRequests.findIndex(r => r.from === targetName && r.tag === meObj.team);
       if (reqIdx === -1) return;
@@ -299,8 +354,8 @@ wss.on('connection', ws => {
       }
     }
     else if (txt.startsWith('TEAM_REJ|') && ws.pid >= 0) {
-      const targetName = (txt.split('|').at(1) || '').trim();
-      const meObj = players.at(ws.pid);
+      const targetName = (txt.split('|')[1] || '').trim();
+      const meObj = players[ws.pid];
       if (!meObj.team || !meObj.teamLeader) return;
       teamRequests = teamRequests.filter(r => !(r.from === targetName && r.tag === meObj.team));
     }
@@ -308,7 +363,7 @@ wss.on('connection', ws => {
       const [, targetNameRaw, amtStr] = txt.split('|');
       const targetName = (targetNameRaw || '').trim();
       const amt = Math.floor(Number(amtStr));
-      const sender = players.at(ws.pid);
+      const sender = players[ws.pid];
       const receiver = players.find(p => p.name === targetName);
       if (!receiver || receiver === sender) {
         ws.send(JSON.stringify({ t: 'err', m: 'Игрок не найден!' }));
@@ -327,12 +382,12 @@ wss.on('connection', ws => {
       const [, bxStr, byStr] = txt.split('|');
       const bx = parseInt(bxStr), by = parseInt(byStr);
       const firstBase = !hasAnyCore(ws.pid);
-      if (!firstBase && players.at(ws.pid).res < CORE_COST) {
+      if (!firstBase && players[ws.pid].res < CORE_COST) {
         ws.send(JSON.stringify({ t: 'err', m: 'Нужно 150💎 для нового Ядра!' }));
         return;
       }
       if (cores.some(c => Math.abs(c.x - bx) < 14 && Math.abs(c.y - by) < 14)) return;
-      if (!firstBase) players.at(ws.pid).res -= CORE_COST;
+      if (!firstBase) players[ws.pid].res -= CORE_COST;
       cores.push({ owner: ws.pid, x: bx, y: by, hp: CORE_MAX_HP, isMain: firstBase });
       for (let dx = -16; dx <= 16; dx += 16)
         for (let dy = -16; dy <= 16; dy += 16)
@@ -350,82 +405,84 @@ wss.on('connection', ws => {
         pts.push([x, y]);
       }
       const totalCost = pts.length * BLOCK_COST;
-      if (pts.length === 0 || players.at(ws.pid).res < totalCost) return;
-      players.at(ws.pid).res -= totalCost;
+      if (pts.length === 0 || players[ws.pid].res < totalCost) return;
+      players[ws.pid].res -= totalCost;
       for (const [x, y] of pts) cells.push([x, y, 3, ws.pid, 1]);
       builds.push({ owner: ws.pid, ticksLeft: ticks, pts });
     }
     else if (txt.startsWith('WALL|') && ws.pid >= 0) {
-      if (players.at(ws.pid).res < 2) return;
+      if (players[ws.pid].res < 2) return;
       const [, xStr, yStr] = txt.split('|');
       const x = parseInt(xStr), y = parseInt(yStr);
       if (!isInsidePlayerZone(ws.pid, x, y) || findCellIndex(x, y) !== -1 || findCoreAt(x, y) !== -1) return;
-      players.at(ws.pid).res -= 2;
-    cells.push([x, y, 3, ws.pid, 5]);
-builds.push({ owner: ws.pid, ticksLeft: 50, pts: [[x, y]], type: 2 });
+      players[ws.pid].res -= 2;
+      cells.push([x, y, 3, ws.pid, 5]);
+      builds.push({ owner: ws.pid, ticksLeft: 50, pts: [[x, y]], type: 2 });
     }
     else if (txt.startsWith('DEL|') && ws.pid >= 0) {
       const [, xStr, yStr] = txt.split('|');
       const x = parseInt(xStr), y = parseInt(yStr);
       if (!isInsidePlayerZone(ws.pid, x, y)) return;
       const ci = findCellIndex(x, y);
-      if (ci >= 0 && isAlly(cells.at(ci).at(3), ws.pid) && (cells.at(ci).at(2) === 1 || cells.at(ci).at(2) === 2)) {
-        const isWall = cells.at(ci).at(2) === 2;
-        cells.at(ci)[2] = 4;
+      if (ci >= 0 && isAlly(cells[ci][3], ws.pid) && (cells[ci][2] === 1 || cells[ci][2] === 2)) {
+        const isWall = cells[ci][2] === 2;
+        cells[ci][2] = 4;
         demos.push({ owner: ws.pid, x, y, ticksLeft: DEMOLISH_TICKS, refund: isWall });
       }
     }
   });
 });
 
-loadWorldData();
-for (let x = -32; x <= 32; x += 16)
-  for (let y = -32; y <= 32; y += 16)
-    ensureChunk(x, y);
+(async () => {
+  await loadWorldData();
+  for (let x = -32; x <= 32; x += 16)
+    for (let y = -32; y <= 32; y += 16)
+      ensureChunk(x, y);
 
-setInterval(() => {
-  stepWorld();
+  setInterval(() => {
+    stepWorld();
 
-  const outCells = cells.map(c => {
-    const col = players.at(c.at(3)) ? players.at(c.at(3)).color : 0x10b981;
-    return [c.at(0), c.at(1), c.at(2), col, c.at(4)];
-  });
-  const outCores = cores.map(b => {
-    const ownerObj = players.at(b.owner);
-    const dispName = ownerObj ? (ownerObj.team ? '[' + ownerObj.team + '] ' + ownerObj.name : ownerObj.name) : '?';
-    return {
-      n: dispName,
-      x: b.x, y: b.y, hp: b.hp,
-      c: ownerObj ? ownerObj.color : 0xffffff
-    };
-  });
-  const pList = players.map(p => ({ n: p.name, t: p.team }));
-  const stateMsg = JSON.stringify({ t: 'state', cells: outCells, cores: outCores, players: pList });
+    const outCells = cells.map(c => {
+      const col = players[c[3]] ? players[c[3]].color : 0x10b981;
+      return [c[0], c[1], c[2], col, c[4]];
+    });
+    const outCores = cores.map(b => {
+      const ownerObj = players[b.owner];
+      const dispName = ownerObj ? (ownerObj.team ? '[' + ownerObj.team + '] ' + ownerObj.name : ownerObj.name) : '?';
+      return {
+        n: dispName,
+        x: b.x, y: b.y, hp: b.hp,
+        c: ownerObj ? ownerObj.color : 0xffffff
+      };
+    });
+    const pList = players.map(p => ({ n: p.name, t: p.team }));
+    const stateMsg = JSON.stringify({ t: 'state', cells: outCells, cores: outCores, players: pList });
 
-  wss.clients.forEach(client => {
-    if (client.readyState === WebSocket.OPEN) {
-      client.send(stateMsg);
-      if (client.pid >= 0 && players.at(client.pid)) {
-        const meObj = players.at(client.pid);
-        const myCore = cores.find(c => c.owner === client.pid);
-        const myReqs = (meObj.team && meObj.teamLeader)
-          ? teamRequests.filter(r => r.tag === meObj.team).map(r => r.from)
-          : [];
-        client.send(JSON.stringify({
-          t: 'me',
-          name: meObj.name,
-          team: meObj.team,
-          isLeader: !!meObj.teamLeader,
-          reqs: myReqs,
-          color: meObj.color,
-          res: meObj.res,
-          hasBase: !!myCore,
-          bx: myCore ? myCore.x : 0,
-          by: myCore ? myCore.y : 0
-        }));
+    wss.clients.forEach(client => {
+      if (client.readyState === WebSocket.OPEN) {
+        client.send(stateMsg);
+        if (client.pid >= 0 && players[client.pid]) {
+          const meObj = players[client.pid];
+          const myCore = cores.find(c => c.owner === client.pid);
+          const myReqs = (meObj.team && meObj.teamLeader)
+            ? teamRequests.filter(r => r.tag === meObj.team).map(r => r.from)
+            : [];
+          client.send(JSON.stringify({
+            t: 'me',
+            name: meObj.name,
+            team: meObj.team,
+            isLeader: !!meObj.teamLeader,
+            reqs: myReqs,
+            color: meObj.color,
+            res: meObj.res,
+            hasBase: !!myCore,
+            bx: myCore ? myCore.x : 0,
+            by: myCore ? myCore.y : 0
+          }));
+        }
       }
-    }
-  });
-}, 200);
+    });
+  }, 200);
 
-server.listen(PORT, () => console.log('Сервер LifeRTS запущен: http://localhost:' + PORT));
+  server.listen(PORT, '0.0.0.0', () => console.log('Сервер LifeRTS запущен на порту ' + PORT));
+})();
