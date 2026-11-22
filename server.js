@@ -40,7 +40,7 @@ function saveWorldData() {
   clearTimeout(saveTimer);
   saveTimer = setTimeout(async () => {
     try {
-                await fetch('https://' + 'api.jsonbin.io/v3/b/' + BIN_ID, {
+                   const r = await fetch('https://' + 'api.jsonbin.io/v3/b/' + BIN_ID, {
         method: 'PUT',
         headers: {
           'Content-Type': 'application/json',
@@ -52,6 +52,7 @@ function saveWorldData() {
           walls: cells.filter(c => c[2] === 2)
         })
       });
+            console.log('JSONBin:', r.status, await r.text());
     } catch (e) { console.error('Ошибка записи в облако:', e); }
   }, 2000);
 }
