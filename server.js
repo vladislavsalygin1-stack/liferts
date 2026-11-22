@@ -105,7 +105,7 @@ function stepWorld() {
     if (builds.at(i).ticksLeft === 0) {
       for (const [bx, by] of builds.at(i).pts) {
         const ci = findCellIndex(bx, by);
-        if (ci >= 0 && cells.at(ci).at(2) === 3) cells.at(ci)[2] = 1;
+        if (ci >= 0 && cells.at(ci).at(2) === 3) cells.at(ci)[2] = builds.at(i).type || 1;
       }
       builds.splice(i, 1);
     }
@@ -361,7 +361,8 @@ wss.on('connection', ws => {
       const x = parseInt(xStr), y = parseInt(yStr);
       if (!isInsidePlayerZone(ws.pid, x, y) || findCellIndex(x, y) !== -1 || findCoreAt(x, y) !== -1) return;
       players.at(ws.pid).res -= 2;
-      cells.push([x, y, 2, ws.pid, 5]);
+    cells.push([x, y, 3, ws.pid, 5]);
+builds.push({ owner: ws.pid, ticksLeft: 50, pts: [[x, y]], type: 2 });
     }
     else if (txt.startsWith('DEL|') && ws.pid >= 0) {
       const [, xStr, yStr] = txt.split('|');
