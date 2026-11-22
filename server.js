@@ -23,7 +23,7 @@ let teamRequests = [];
 
 async function loadWorldData() {
   try {
-    const res = await fetch(`https://jsonbin.io{BIN_ID}/latest`, {
+        const res = await fetch('https://' + 'api.jsonbin.io/v3/b/' + BIN_ID + '/latest', {
       headers: { 'X-Master-Key': API_KEY }
     });
     const json = await res.json();
@@ -40,7 +40,7 @@ function saveWorldData() {
   clearTimeout(saveTimer);
   saveTimer = setTimeout(async () => {
     try {
-      await fetch(`https://jsonbin.io{BIN_ID}`, {
+                await fetch('https://' + 'api.jsonbin.io/v3/b/' + BIN_ID, {
         method: 'PUT',
         headers: {
           'Content-Type': 'application/json',
